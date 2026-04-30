@@ -1,0 +1,6 @@
+{
+  "version": "2.1.0",
+  "author": "Jasim A Basheer",
+  "date": "April 2026",
+  "abstract": "Diagnose and remedy code legibility problems through thirteen recurring structural patterns: narrative incoherence, invisible data, tangled intent and execution, decisions buried in execution, discarded evidence, flat domain vocabulary, shallow boundaries, modules organized around verbs rather than types, information loss from premature splitting or over-bundling, working memory overflow, the extract-function dead end, scattered knowledge, and re-litigated invariants. Each diagnostic is paired with a reference note that explains the underlying concept and a concrete remedy. Built for agents reviewing PRs, planning refactors, or designing module seams."
+}
