@@ -14,4 +14,4 @@ In a coding agent:
 /legible-code Review the last commit
 ```
 
-You can also point to the entire repo, a module, or a plan file to see how we can improve them by applying the the principles in Legible Code.
+You can also point to the entire repo, a module, or a plan file to see how we can improve them by applying the principles in Legible Code.
