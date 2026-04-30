@@ -3,9 +3,9 @@
 This is a set of notes on what makes a codebase legible and habitable to me. It is written for both humans and AI. You
 can install this as a coding agent skill and use it to review code and to generate ideas to improve your architecture.
 
-I compiled this gradually, as a set of review notes to pass to the coding agent, to improve the code it generated.
-Together, it has become a rough set of ideals on how I like my codebases organized. You can read the full compilation in
-this [one page overview](./OVERVIEW.md).
+I compiled this gradually, as a set of review notes to pass to the coding agent, to improve the code it generated. Together, it has become a rough set of ideals on how I like my codebases organized. 
+
+What is Legible Code? **[Read the introduction](./INTRODUCTION.md)**
 
 They are also organized as a set of diagnostic instructions for the coding agent in the [SKILL.md file](./SKILL.md).
 
