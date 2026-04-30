@@ -14,7 +14,7 @@ Reynolds's technique replaces higher-order functions with a finite data type who
 
 ## Reification
 
-Smith — *Reflection and Semantics in a Procedural Language* (MIT, 1982).
+Smith — *Reflection and Semantics in a Procedural Language* (MIT, 1982). (I haven't read this paper myself, but reification has become a very useful tool in our collective vocabulary that I've taken it for granted for a long time.)   
 
 To reify is to make implicit machinery explicit *as data* — to take a process, decision, or piece of structure that lives only in the runtime and turn it into a value that can be inspected, stored, transformed, and replayed. Reification is the structural move that makes "data has primacy over actions" possible.
 
