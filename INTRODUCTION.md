@@ -35,6 +35,6 @@ We also design our modules to be deep. The right criterion for a module boundary
 
 And finally, in an ideal codebase, all decisions are made with absolute clarity; there is no need for fragile heuristics, and we design our types so that data never gets into impossible shapes.
 
-All of the above ideas comes down to one thing: **make the invisible visible**. At every scale — expression, function, module, system —  the move is the same: take something hidden in time, space, or logic, and make it a static, inspectable, typed thing. Data hidden in control flow becomes named values flowing through pipelines. From there, knowledge that was scattered across files consolidates into a single authoritative definition. The evidence validation once discarded now returns as a guarantee carried in the type, and intent buried in interleaved logic rises to the surface as a visible plan. Shallow boundaries deepen into modules that hide design decisions, while unnamed repetition grows into a layered language that mirrors the domain.
+All of the above ideas comes down to one thing: **make the invisible visible**. At every scale — expression, function, module, system —  the move is the same: take something hidden in time, space, or logic, and make it a static, inspectable, typed thing.
 
 A codebase that follows these principles reads like a well-surveyed landscape seen from a ridge — every feature lies where you'd expect it, each boundary drawn with purpose, nothing hidden behind a fold in the terrain.
