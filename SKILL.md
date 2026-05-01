@@ -152,9 +152,13 @@ You have a large, unwieldy function or module. You try to improve it by extracti
 **Remedy:** Read `notes/type-centric-modularization.md` and apply its guidance.
 
 ### D12. Scattered Knowledge
-Pick any convention in your codebase — a naming rule, a directory layout, a policy, a format assumption. Is it *defined* somewhere, or only *followed* in many places?
+
+Often called code duplication; but more accurately - knowledge duplication. It includes knowledge about how specific operations, data transformations, policies and parsing/validation is done. It also includes conventions - naming rules, format assumptions, ordering etc. 
+
+Are they *defined* somewhere - in one authoritative source, or duplicated/followed in many places with? If the knowledge is scattered then it is hard to have a coherent understanding and we lose confidence in our ability to work with the codebase.  
 
 **Examples:**
+
 1. Every API response handler repeats the same field-mapping logic — `data.first_name` → `firstName` — but no single function defines the mapping. Changing the API's field naming convention requires a shotgun edit with no compiler help finding what you missed.
 2. A directory layout convention (controllers in `src/controllers/`, services in `src/services/`) is followed by 30 modules but defined nowhere. A new developer can only learn it by inferring from scattered instances, and a violation goes undetected.
 

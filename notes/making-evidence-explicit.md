@@ -61,19 +61,43 @@ Some invariants can't be lifted into a type because the evidence lives outside t
 
 - **External state.** "This S3 key exists", "this feature flag is on for this tenant", "this idempotency key has not been used" — the truth lives in another system and can change between calls.
 
-For these, write *one* guard that asserts the invariant and throws on violation, then call it at every site where the invariant must hold:
+For these, write *one* guard that asserts the invariant at every site where it must hold. Prefer a guard that **also narrows the type** — TypeScript's assertion functions throw on violation *and* inform the compiler that the value is now known-valid, so downstream code receives evidence the type system can enforce:
 
 ```ts
-// Throws CustomerNotFound if the FK does not resolve in the current tenant.
-async function assertCustomerExists(id: CustomerId, tenant: TenantId): Promise<void>
+type ExistingCustomerId = CustomerId & { readonly __existing: unique symbol };
+
+function assertCustomerExists(
+  id: CustomerId,
+  tenant: TenantId,
+  registry: CustomerRegistry,
+): asserts id is ExistingCustomerId {
+  if (!registry.has(id, tenant)) throw new CustomerNotFound(id);
+}
+
+// Call site:
+assertCustomerExists(id, tenant, registry);
+chargeCustomer(id); // chargeCustomer requires ExistingCustomerId
 ```
 
-Two rules:
+After the assertion returns, the compiler tracks `id` as `ExistingCustomerId`. Any downstream function that demands the branded type accepts it without re-checking — the evidence has been promoted into the type. The same shape works with a `function isX(v): v is X` predicate when the unhappy path is a branch rather than a throw.
+
+When the validity cannot be captured in a type at all — when there is no meaningful brand, no richer type to return, only a runtime fact that must be true at this moment — fall back to a plain throwing guard whose only contract is success-or-throw:
+
+```ts
+function assertWithinRateLimit(key: RateLimitKey, bucket: TokenBucket): void
+```
+
+This form has no type effect. It is a pure convention: every call site that needs the invariant calls the guard; nothing in the type system enforces that they do. To keep the convention durable, give the guard a single canonical home, a name that states the invariant, and a docstring that lists the call sites that depend on it. Treat a missing call as a review-time defect.
+
+Two rules apply to all of these forms:
 
 1. **Throw, don't return a boolean.** If an invariant doesn't hold, it is an exceptional situation. We want our system to avoid ambiguities, so our code can make decisions with confidence.  
+2. 
 2. **One canonical guard per invariant.** When the rule changes there should only be place to change it. It also becomes a clear convention so that if a site forgets to call it, the omission is visible immediately.
 
-Runtime guards are a fallback. If we were able to use the type system, then the compiler will check every call site for free. But a runtime guard is checked only at sites that remember to call it, and it is a convention, that has to be followed. Its adherence decays as the codebase grows. So reach for runtime guards only when the evidence genuinely cannot be made structural.
+Runtime guards are a fallback to the nominal-type approach above. A nominal type built once at construction is checked by the compiler at every downstream call site for free. A runtime guard runs the check on every call, and depends on the caller remembering to invoke it.
+
+That dependency is mitigated when the guard narrows into a branded type — the compiler will refuse to call `chargeCustomer(id)` until `assertCustomerExists` has run, because only then does `id` have the required brand. A pure throwing guard with no type effect has no such safety net; its adherence is pure convention and decays as the codebase grows. So the order of preference is: nominal type at construction → assertion function that narrows → pure throwing guard, only when neither of the above is expressible.
 
 ### Where to lift
 
