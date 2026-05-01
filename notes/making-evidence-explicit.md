@@ -1,47 +1,79 @@
 # Making Evidence Explicit: Types as Guarantees
 
-Validation *checks* that data is well-formed but throws away the evidence. A function that returns `boolean` tells the caller "yes" or "no" but doesn't encode *what was verified* into the type system — this is **boolean blindness** (Harper, 2011). Downstream code is left to trust on faith — or to re-check.
+A validation function *checks* that data is well-formed and returns a boolean, but the information is not encoded into the type system. This is called **boolean blindness**. Downstream code will have to trust that the control flow that brought it the data would've done the verification already, or if it has to be sure, it will have to re-validate.
 
-The remedy is to make the evidence explicit: convert data into types where the guarantee is structurally undeniable. This principle operates at two boundaries — the system edge and inside the pipeline.
+The remedy is to make the evidence explicit: convert data into types where the guarantee is structurally undeniable. This principle operates everywhere - in the boundaries of the system as well as inside domain code.
 
 ## At the system boundary: Parse, Don't Validate
 
 Parsing *converts* data into a richer type where invalid states are unrepresentable (Minsky, "Make Illegal States Unrepresentable"; King, "Parse, Don't Validate"). After parsing, downstream code can't encounter surprises — the type system guarantees what was verified.
 
-The boundary is where the messy world meets your clean domain. Everything inside the boundary speaks the language of your domain types.
-
-For every system boundary (HTTP request handler, file reader, database query result, user event):
+The boundary accepts data from the external world - this could be network calls, user input, file I/O, or database queries. For every one of them, we have to:
 
 1. **Define an internal type** that represents the *valid* shape of the data. Invalid states should be unrepresentable in this type.
 2. **Write a parser** at the boundary that converts raw input into this type, failing explicitly if the input is malformed.
 3. **Trust the type downstream.** Once data has been parsed, no further validation should be necessary. If you find yourself checking for null or invalid values deep in the interior, the boundary parser is incomplete.
 
-## Inside the pipeline: Lifted Invariants
+## Inside the domain: Lifted Invariants
 
-Some invariants don't live at the system boundary; they emerge *inside* the pipeline as data is enriched, sorted, joined, or filtered. Two kinds matter:
+Some invariants don't live at the system boundary; they emerge *inside* domain code as data is enriched, sorted, joined, or filtered. Two kinds matter:
 
-- **Shape invariants** — the array is sorted, the list is non-empty, every record has been enriched with a `tenant_id`.
-- **Relational invariants** — two or more values are constrained to be in valid combinations: `status` and `expires_at`, `start` and `end`, currency and amount.
+- **Shape invariants** —  eg: the array is sorted, the list is non-empty, every record has been enriched with a `tenant_id`.
+- **Relational invariants** —  two or more values are constrained to be in valid combinations: `status` and `expires_at`, `start` and `end`, currency and amount.
 
-When such an invariant is not lifted into the type system, downstream consumers must each independently know about and uphold it. The cost is paid twice: once in the bugs, and once in the cognitive load of every reader who must reconstruct what is true about the data at this point in the program.
+When such an invariant is not lifted into the type system, downstream consumers must each independently know about and uphold it.
 
-### Concrete nominal type (preferred)
+### Remedies
+
+#### Concrete nominal type
 
 Define a type whose existence *is* the invariant. The type's only constructor establishes the invariant; downstream code receives the type and may not re-decide.
 
 For shape invariants: a discriminated record with a `kind` tag (e.g. `{ kind: 'chrono', rows: T[] }`) or a class with a private constructor and a `make` / `normalize` factory.
 
-For co-varying fields: replace the independent fields with a single compound type whose shape can only express valid combinations. A discriminated union over `status` so that `expires_at` exists exactly when `status === 'active'`. A `DateRange` whose smart constructor refuses `start > end`. An `Amount` that pairs value and currency so currency-less arithmetic is unrepresentable.
+For co-varying fields: replace the independent fields with a single compound type whose shape can only express valid combinations. 
 
-After lifting, downstream code that previously branched on a flag now demands the typed argument. Any function that does not preserve the invariant cannot return the type, so the place where order or shape might be lost is exactly the place a reviewer looks.
+Example: a discriminated union over `status` so that `expires_at` exists only when `status === 'active'`: 
 
-### Reusable guard (fallback)
+```ts 
+type Subscription =
+     | { status: 'active'; expires_at: Date }
+     | { status: 'cancelled' }
+```
 
-When the constraint spans values held in different domains and cannot be co-located in a single type — a foreign-key relationship between records owned by different services, a constraint that requires runtime context to evaluate — write *one* guard function that asserts the invariant and **throws loudly** on violation. Call this guard at every boundary where the invariant must hold.
+Another example: a `DateRange` whose smart constructor refuses `start > end`:
 
-Avoid silent boolean returns: a `boolean` discards the evidence and lets callers ignore it. The guard either succeeds or throws.
+```ts
+type DateRange = { start: Date; end: Date }
+export const makeDateRange = (start: Date, end: Date): DateRange.t | Error =>
+       start > end ? Error('start > end') : { start, end }
+```
 
-This is a fallback, not a peer. A nominal type is checked at compile time at every call site for free; a guard is checked only at sites that remember to call it. Reach for the guard when the type approach is genuinely infeasible, not when it would be slightly more work.
+After this invariant lifting is done, downstream code that previously branched on a flag can expect a typed argument instead. Any function that does not preserve the invariant cannot return the type, thus guaranteeing the invariants. 
+
+### Reusable runtime guard as a fallback
+
+Some invariants can't be lifted into a type because the evidence lives outside the program's static world. Three common cases:
+
+- **Cross-aggregate references.** An `Order` carries a `customerId`, but the `Customer` row lives in another table — or another service. The type system can't prove the foreign key resolves; only a lookup against live data can.
+
+- **Runtime authorization.** "This caller may read this document" depends on the request's auth context and the document's ACL. Neither is known at compile time, and neither belongs in the document type.
+
+- **External state.** "This S3 key exists", "this feature flag is on for this tenant", "this idempotency key has not been used" — the truth lives in another system and can change between calls.
+
+For these, write *one* guard that asserts the invariant and throws on violation, then call it at every site where the invariant must hold:
+
+```ts
+// Throws CustomerNotFound if the FK does not resolve in the current tenant.
+async function assertCustomerExists(id: CustomerId, tenant: TenantId): Promise<void>
+```
+
+Two rules:
+
+1. **Throw, don't return a boolean.** If an invariant doesn't hold, it is an exceptional situation. We want our system to avoid ambiguities, so our code can make decisions with confidence.  
+2. **One canonical guard per invariant.** When the rule changes there should only be place to change it. It also becomes a clear convention so that if a site forgets to call it, the omission is visible immediately.
+
+Runtime guards are a fallback. If we were able to use the type system, then the compiler will check every call site for free. But a runtime guard is checked only at sites that remember to call it, and it is a convention, that has to be followed. Its adherence decays as the codebase grows. So reach for runtime guards only when the evidence genuinely cannot be made structural.
 
 ### Where to lift
 
