@@ -1,47 +1,67 @@
 # Making Evidence Explicit: Types as Guarantees
 
-A validation function *checks* that data is well-formed and returns a boolean, but the information is not encoded into the type system. This is called **boolean blindness**. Downstream code will have to trust that the control flow that brought it the data would've done the verification already, or if it has to be sure, it will have to re-validate.
+Use the type system to convert information about invariants in a piece of data into a type guarantee that is statically undeniable. This way the invariant check need only be done once, and downstream code need not re-verify them ever again. This principle operates everywhere: at the boundaries of the system, deep inside domain code, and at every seam where data changes shape or meaning.
 
-The remedy is to make the evidence explicit: convert data into types where the guarantee is structurally undeniable. This principle operates everywhere - in the boundaries of the system as well as inside domain code.
+## Use parser functions instead of validations
 
-## At the system boundary: Parse, Don't Validate
+A validation function is one that returns a boolean depending on whether the check failed or succeeded. This however carries no structural guarantee which can be relied on by code that is not in its immediate vicinity. This is called **boolean blindness**. 
 
-Parsing *converts* data into a richer type where invalid states are unrepresentable (Minsky, "Make Illegal States Unrepresentable"; King, "Parse, Don't Validate"). After parsing, downstream code can't encounter surprises — the type system guarantees what was verified.
+It is an instance of a broader pattern: **re-litigation**. Whenever an invariant is not encoded in the type system, every consumer that depends on it must independently know about it, uphold it, and re-establish it. The pattern recurs at every level of the system:
 
-The boundary accepts data from the external world - this could be network calls, user input, file I/O, or database queries. For every one of them, we have to:
+- At the boundary, unvalidated raw data forces interior code to check for null or invalid values.
+- In the domain, an unlifted invariant forces each consumer to independently uphold it.
+- At runtime, a guard that callers must remember to invoke leaves adherence to convention — and that adherence decays as the codebase grows.
+
+In every case the remedy is the same: make the evidence explicit so the type system carries the proof, eliminating re-litigation.
+
+### Boundary invariants
+
+These invariants hold from the moment data enters the system. The boundary accepts data from the external world — network calls, user input, file I/O, database queries — and none of it carries type-level guarantees until the program establishes them. The invariant here is that the data conforms to a valid internal shape, and this is the "Parse, Don't Validate" pattern: parsing *converts* raw input into a richer type where invalid states are unrepresentable, failing explicitly if the input is malformed.
+
+The boundary protocol has three steps:
 
 1. **Define an internal type** that represents the *valid* shape of the data. Invalid states should be unrepresentable in this type.
 2. **Write a parser** at the boundary that converts raw input into this type, failing explicitly if the input is malformed.
-3. **Trust the type downstream.** Once data has been parsed, no further validation should be necessary. If you find yourself checking for null or invalid values deep in the interior, the boundary parser is incomplete.
+3. **Trust the type downstream.** Once data has been parsed, no further validation should be necessary.
 
-## Inside the domain: Lifted Invariants
+### Interior invariants
 
-Some invariants don't live at the system boundary; they emerge *inside* domain code as data is enriched, sorted, joined, or filtered. Two kinds matter:
+Not all invariants are present at the boundary. Some emerge only inside domain code as data is enriched, sorted, joined, or filtered. These come in two sub-kinds:
 
-- **Shape invariants** —  eg: the array is sorted, the list is non-empty, every record has been enriched with a `tenant_id`.
-- **Relational invariants** —  two or more values are constrained to be in valid combinations: `status` and `expires_at`, `start` and `end`, currency and amount.
+- **Shape invariants** — the array is sorted, the list is non-empty, every record has been enriched with a `tenant_id`.
+- **Relational invariants** — two or more values are constrained to be in valid combinations: `status` and `expires_at`, `start` and `end`, currency and amount.
 
-When such an invariant is not lifted into the type system, downstream consumers must each independently know about and uphold it.
+Like boundary invariants, interior invariants can be lifted into types — the difference is simply that the evidence becomes available later, inside the domain rather than at the edge.
 
-### Remedies
+### Exterior invariants
 
-#### Concrete nominal type
+Some invariants require evidence that lives outside the program's static world entirely. No type within the program can prove them at compile time because the truth depends on live data or external systems, and can even change between calls.
 
-Define a type whose existence *is* the invariant. The type's only constructor establishes the invariant; downstream code receives the type and may not re-decide.
+Exterior invariants cannot use the strongest enforcement tier, because the evidence simply isn't available at construction time.
 
-For shape invariants: a discriminated record with a `kind` tag (e.g. `{ kind: 'chrono', rows: T[] }`) or a class with a private constructor and a `make` / `normalize` factory.
+## The Enforcement Spectrum
 
-For co-varying fields: replace the independent fields with a single compound type whose shape can only express valid combinations. 
+Invariants can be enforced with varying degrees of compiler support. Try to always use the strongest tier that is expressible — stepping down only when a higher tier cannot capture the evidence.
 
-Example: a discriminated union over `status` so that `expires_at` exists only when `status === 'active'`: 
+### Tier 1: Nominal type at construction
 
-```ts 
+The strongest form of enforcement is a type whose existence *is* the invariant. The type's only constructor establishes the invariant. Because the compiler enforces the guarantee at every downstream call site for free, re-litigation is impossible.
+
+This tier applies to boundary invariants — the parser produces the nominal type — and to interior shape and relational invariants when the evidence is available at construction.
+
+**For shape invariants,** use a discriminated record with a `kind` tag (e.g. `{ kind: 'chrono', rows: T[] }`) or a class with a private constructor and a `make` / `normalize` factory.
+
+**For relational invariants (co-varying fields),** replace independent fields with a single compound type whose shape can only express valid combinations.
+
+Example: a discriminated union over `status` so that `expires_at` exists only when `status === 'active'`:
+
+```ts
 type Subscription =
      | { status: 'active'; expires_at: Date }
      | { status: 'cancelled' }
 ```
 
-Another example: a `DateRange` whose smart constructor refuses `start > end`:
+Example: a `DateRange` whose smart constructor refuses `start > end`:
 
 ```ts
 type DateRange = { start: Date; end: Date }
@@ -49,19 +69,11 @@ export const makeDateRange = (start: Date, end: Date): DateRange.t | Error =>
        start > end ? Error('start > end') : { start, end }
 ```
 
-After this invariant lifting is done, downstream code that previously branched on a flag can expect a typed argument instead. Any function that does not preserve the invariant cannot return the type, thus guaranteeing the invariants. 
+After this invariant lifting, downstream code that previously branched on a flag can expect a typed argument instead. The branching is no longer necessary because the type already answers the question.
 
-### Reusable runtime guard as a fallback
+### Tier 2: Assertion function that narrows the type
 
-Some invariants can't be lifted into a type because the evidence lives outside the program's static world. Three common cases:
-
-- **Cross-aggregate references.** An `Order` carries a `customerId`, but the `Customer` row lives in another table — or another service. The type system can't prove the foreign key resolves; only a lookup against live data can.
-
-- **Runtime authorization.** "This caller may read this document" depends on the request's auth context and the document's ACL. Neither is known at compile time, and neither belongs in the document type.
-
-- **External state.** "This S3 key exists", "this feature flag is on for this tenant", "this idempotency key has not been used" — the truth lives in another system and can change between calls.
-
-For these, write *one* guard that asserts the invariant at every site where it must hold. Prefer a guard that **also narrows the type** — TypeScript's assertion functions throw on violation *and* inform the compiler that the value is now known-valid, so downstream code receives evidence the type system can enforce:
+When the invariant depends on runtime data — as with exterior invariants — Tier 1 is not possible because the evidence isn't available at construction. The next best option is an assertion function that checks the invariant at runtime and, on success, narrows the type so the compiler knows the value is now valid:
 
 ```ts
 type ExistingCustomerId = CustomerId & { readonly __existing: unique symbol };
@@ -81,30 +93,35 @@ chargeCustomer(id); // chargeCustomer requires ExistingCustomerId
 
 After the assertion returns, the compiler tracks `id` as `ExistingCustomerId`. Any downstream function that demands the branded type accepts it without re-checking — the evidence has been promoted into the type. The same shape works with a `function isX(v): v is X` predicate when the unhappy path is a branch rather than a throw.
 
-When the validity cannot be captured in a type at all — when there is no meaningful brand, no richer type to return, only a runtime fact that must be true at this moment — fall back to a plain throwing guard whose only contract is success-or-throw:
+### Tier 3: Pure throwing guard
+
+Sometimes validity cannot be captured in a type at all — there is no meaningful brand, no richer type to return, only a runtime fact that must be true at this moment. In that case, fall back to a plain throwing guard whose only contract is success-or-throw:
 
 ```ts
 function assertWithinRateLimit(key: RateLimitKey, bucket: TokenBucket): void
 ```
 
-This form has no type effect. It is a pure convention: every call site that needs the invariant calls the guard; nothing in the type system enforces that they do. To keep the convention durable, give the guard a single canonical home, a name that states the invariant, and a docstring that lists the call sites that depend on it. Treat a missing call as a review-time defect.
+This form has no type effect. It is pure convention: every call site that needs the invariant calls the guard; nothing in the type system enforces that they do. Re-litigation is unconstrained — adherence decays as the codebase grows. To keep the convention durable, give the guard a single canonical home, a name that states the invariant, and a docstring that lists the call sites that depend on it. Treat a missing call as a review-time defect.
 
-Two rules apply to all of these forms:
+## Where to Lift
 
-1. **Throw, don't return a boolean.** If an invariant doesn't hold, it is an exceptional situation. We want our system to avoid ambiguities, so our code can make decisions with confidence.  
-2. 
-2. **One canonical guard per invariant.** When the rule changes there should only be place to change it. It also becomes a clear convention so that if a site forgets to call it, the omission is visible immediately.
+Lift the invariant at the *earliest stage where it can be made true*.
 
-Runtime guards are a fallback to the nominal-type approach above. A nominal type built once at construction is checked by the compiler at every downstream call site for free. A runtime guard runs the check on every call, and depends on the caller remembering to invoke it.
+- For sortedness or canonical form, that means at the parse boundary, before any consumer sees the data.
+- For enrichment, it means in the function that performs the enrichment, returning the enriched type.
+- For relational constraints between fields, it means in the smart constructor of the compound type, called wherever the related fields first become known together.
+- For exterior invariants, it means at the call site immediately before the code that depends on the invariant, via an assertion function.
 
-That dependency is mitigated when the guard narrows into a branded type — the compiler will refuse to call `chargeCustomer(id)` until `assertCustomerExists` has run, because only then does `id` have the required brand. A pure throwing guard with no type effect has no such safety net; its adherence is pure convention and decays as the codebase grows. So the order of preference is: nominal type at construction → assertion function that narrows → pure throwing guard, only when neither of the above is expressible.
+## The Deletability Test
 
-### Where to lift
+After lifting, audit the downstream code. Every conditional that branched on the question, every defensive re-check, every comment explaining "we know this is sorted because…" should be deletable. If they aren't, the invariant has not actually been lifted — the type is decorative, and the question is still being re-litigated.
 
-Lift the invariant at the *earliest stage where it can be made true*:
+This test applies uniformly across the system. If you find yourself checking for null or invalid values deep in the interior, the boundary parser is incomplete. If interior code re-checks an invariant that a nominal type already guarantees, the type isn't carrying its weight. In each case, the surviving check tells you exactly where the evidence is still missing.
 
-- For sortedness or canonical form: at the parse boundary, before any consumer sees the data.
-- For enrichment: in the function that performs the enrichment, returning the enriched type.
-- For relational constraints between fields: in the smart constructor of the compound type, called wherever the related fields first become known together.
+## Two Universal Rules
 
-After lifting, audit downstream code: every conditional that branched on the question, every defensive re-check, every comment explaining "we know this is sorted because…" should be deletable. If they aren't, the invariant has not actually been lifted — the type is decorative, and the question is still being re-litigated.
+Regardless of which tier you use, two rules apply across the entire enforcement spectrum:
+
+1. When an invariant doesn't hold, that is an exceptional situation — so treat it as one. Return an appropriate type or throw; never return a boolean that the caller can ignore. The goal is a system free of ambiguities, where code can make decisions with confidence because every path either carries proof or stops.
+
+2. **One canonical definition per invariant.** Whether the invariant is established by a nominal type's constructor, a narrowing assertion function, or a plain throwing guard, there should be one authoritative place where it is defined.
