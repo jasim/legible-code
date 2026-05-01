@@ -8,7 +8,7 @@ Parnas (1972) showed that the right criterion for module boundaries is not "what
 
 Ousterhout (*A Philosophy of Software Design*, 2018) extends this with the *deep module* principle: the best modules provide powerful functionality behind simple interfaces. If a module's interface is as complex as its implementation, it's *shallow* — it pushes complexity onto its callers. If a module's interface is simple but hides significant complexity, it's *deep* — it absorbs complexity on behalf of its callers.
 
-Constantine's cohesion/coupling lens gives you the diagnostic: high cohesion within (everything in the module belongs together) and low coupling between (modules don't depend on each other's internals).
+Constantine's cohesion/coupling lens gives a useful diagnostic: high cohesion within (everything in the module belongs together) and low coupling between (modules don't depend on each other's internals).
 
 ## Diagnostics
 
