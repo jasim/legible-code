@@ -12,8 +12,6 @@ The most insidious form of this problem is that **the damage is invisible at the
 
 This is fundamentally hard to diagnose because the symptom (tangled code, heuristic-based decisions) appears far from the cause (a lossy projection at a distant point upstream). When you're working at the lower level, you can't see what you don't have. The explosion of possibilities is not intrinsic complexity — it's accidental complexity introduced by the projection that stripped away the constraining context.
 
-**The diagnostic clue:** if a module's behavior is hard to specify, if it handles many cases through pattern-matching or heuristics, ask whether it's receiving the right data. Trace the data back upstream. Was there a richer, more concrete form of this data that was projected before it reached here? Could passing the original, unprojected concept have collapsed those many cases into a few obvious ones?
-
 ## Diagnostic tests for lossy projection
 
 1. **The reconstruction test.** Is downstream code rebuilding a concept from fragments —  joining tables, querying auxiliary services, or merging data from multiple sources to recover what was once a single value? If so, the projection was lossy relative to what consumers need.
