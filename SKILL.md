@@ -131,7 +131,7 @@ You have a concept (a user event, a domain operation, a data type) and you need 
 1. A `Document` type bundles metadata, content, and rendering config. Every consumer depends on the whole thing even when it only needs one part. When rendering config changes schema, the search indexer breaks — even though it never uses rendering config.
 2. Different parts of a bundled concept change at different rates, but a change to one part forces recompilation or redeployment of all consumers. Splitting would let each part evolve independently — but only if the parts don't carry meaning in their relationship.
 
-**Remedy:** Read `notes/cohesion-and-decomposition.md` and apply its guidance.
+**Remedy:** Read `notes/removing-meaning-causes-fragile-heuristics.md` and apply its guidance.
 
 ### D10. Working Memory Overflow
 Read through a function or module. Count the things you must hold in your head simultaneously: variables in scope, branches in flight, implicit state, conventions to remember.

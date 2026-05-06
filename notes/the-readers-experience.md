@@ -31,7 +31,7 @@ Cognitive load is what the reader must hold in working memory to understand the 
 | Source of load | Remedy |
 |---|---|
 | Nested control flow | Flatten with early returns and guard clauses; structure as pipelines ([Making Data Explicit](./making-data-explicit.md)) |
-| Mixed iterations | Split into separate passes, one concern per iteration ([Cohesion and Decomposition](./cohesion-and-decomposition.md)) |
+| Mixed iterations | Split into separate passes, one concern per iteration ([Removing Meaning Causes Fragile Heuristics](./removing-meaning-causes-fragile-heuristics.md)) |
 | Action at a distance | Make data explicit, pass it through the pipeline rather than storing it in ambient state ([Making Data Explicit](./making-data-explicit.md)) |
 | Implicit conventions | Make conventions visible as types, signatures, or module structure ([Making Knowledge Explicit](./making-knowledge-explicit.md)) |
 | Dispersed branching | Lift invariants into types so the question is removed from downstream code ([Making Evidence Explicit](./making-evidence-explicit.md)) |
