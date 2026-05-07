@@ -39,14 +39,14 @@ Work in two passes. Do not start matching diagnostics on the first pass.
 
 - **Diff or PR:** Weight findings toward issues the diff introduces or worsens. Don't pile on pre-existing problems unless they make the diff materially harder to review.
 - **Plan or design:** Apply diagnostics to the proposed structure — which decisions are reified, where the seams are, what vocabulary is introduced, what knowledge would be scattered. Flag problems the plan would *bake in* if implemented as-written.
-- **Files with no specific question:** Use the user's framing as the signal ("hard to test" → D3/D4/D5; "hard to change" → D7/D8/D12; "hard to follow" → D1/D2/D10).
+- **Files with no specific question:** Use the user's framing as the signal ("hard to test" → D3/D4/D5; "hard to change" → D7/D8/D13; "hard to follow" → D1/D2/D11).
 - **Nothing fires:** "No high-leverage legibility issues found; here's what I checked" is a valid output. Do not invent problems.
 
 ---
 
 ## Diagnostics
 
-Lower-numbered diagnostics are foundations; higher-numbered ones emerge from them. D12 (Scattered Knowledge) is cross-cutting. For the reasoning behind these diagnostics, see `INTRODUCTION.md`.
+Lower-numbered diagnostics are foundations; higher-numbered ones emerge from them. D13 (Scattered Knowledge) is cross-cutting. For the reasoning behind these diagnostics, see `INTRODUCTION.md`.
 
 ### D1. Narrative Incoherence
 Look at your entry points — HTTP handlers, CLI commands, event subscribers, message consumers, job triggers. Any place where a user action or system event enters the codebase. Pick one entry point. Trace what happens from the moment it receives input to the final side-effect. Note how many files you pass through and whether each step is explicit or implicit.
@@ -120,20 +120,39 @@ Look at your module and file boundaries. For each significant module, ask: what 
 
 **Remedy:** Read `notes/type-centric-modularization.md` and apply its guidance.
 
-### D9. Information Loss
-You have a concept (a user event, a domain operation, a data type) and you need to decide: should it stay as one thing or be broken into parts? Are concepts split where they cleave naturally, and bundled only when their parts truly belong together?
+### D9. Information Loss (Premature Decomposition)
+You have a concept — a domain event, a record, a value — that flows through the system. Look at where it is split into parts. Do the parts on their own carry less meaning than the whole, and do downstream consumers visibly try to put the meaning back together?
 
-**Examples (splitting too eagerly):**
-1. A `UserCreated` event is immediately split into `SendWelcomeEmail` and `CreateBillingAccount` messages — but the billing module later needs the original signup context (referral source, campaign) to determine the plan. It resorts to heuristics to reconstruct intent that was explicit in the original event before the split stripped it away.
+The signature is **reconstruction work in the consumer**: heuristics that approximate what the original record stated exactly, joins that re-fetch context the upstream split discarded, branch explosions where a single upstream variant becomes many downstream cases the consumer cannot distinguish.
+
+**Examples:**
+1. A `UserCreated` event is immediately split into `SendWelcomeEmail` and `CreateBillingAccount` messages — but the billing module later needs the original signup context (referral source, campaign) to determine the plan. It resorts to heuristics ("if the user signed up within 7 days, treat as referral") to reconstruct intent that was explicit before the split stripped it away.
 2. A lower-level module has tangled control flow with many branches trying to determine which scenario produced the data — when you trace back, the ambiguity was introduced by an upstream decomposition that stripped away the constraining context. The module is pattern-matching its way back to information that already existed before the split.
-
-**Examples (bundling too much):**
-1. A `Document` type bundles metadata, content, and rendering config. Every consumer depends on the whole thing even when it only needs one part. When rendering config changes schema, the search indexer breaks — even though it never uses rendering config.
-2. Different parts of a bundled concept change at different rates, but a change to one part forces recompilation or redeployment of all consumers. Splitting would let each part evolve independently — but only if the parts don't carry meaning in their relationship.
 
 **Remedy:** Read `notes/removing-meaning-causes-fragile-heuristics.md` and apply its guidance.
 
-### D10. Working Memory Overflow
+### D10. Invalid Bundling
+You have a record, struct, or class that carries multiple fields. Look at when each field becomes valid, who reads it, and how often its shape changes. Are all the fields actually one concept — co-created, co-read, co-evolving — or are they distinct concepts that have been glued together because they happened to travel near each other?
+
+The signature has two faces, and they are the same problem seen from two angles:
+
+**(a) The type lies at construction.** A field is typed as present but is populated only mid-construction, forcing `undefined as unknown as T` casts, `!` non-null assertions, or a "patch in later" pattern behind a ref or setter.
+
+**(b) The type admits invalid combinations.** Take the fields whose presence/validity is genuinely independent in the type and enumerate their combinations. If the type permits `2^n` shapes but only a handful are domain-valid, the type is failing the *make illegal states unrepresentable* principle. Optional fields that are "always set together" (or "never set unless this other one is") are the giveaway: the type is stating an independence the domain denies.
+
+Other supporting signals:
+- Consumers reach into only one slice of the record and ignore the rest; different slices are read by entirely different modules.
+- A schema change to one slice forces recompilation, redeployment, or test churn in consumers that never touched that slice.
+- Code defends against impossible combinations with runtime guards (`if (this.conn && !this.child) throw ...`) — a re-litigation of an invariant the type should have prevented.
+
+**Examples:**
+1. A `LiveSession` bundles session-domain state (`id`, `cwd`, `terminals`, lifetime = whole session) with the spawned agent process (`conn`, `child`, `stderrTail`, lifetime = only after `createAgentConnection` returns). If the three process fields are typed as non-optional, construction has to lie (`undefined as unknown as T`); if they are typed as optional, the type admits eight combinations of present/absent across the three, but the domain only ever wants two — *all three present* (after spawn) or *all three absent* (before spawn). The remaining six are representable but invalid, and downstream code has to either guard against them or assume they don't happen. Splitting into `SessionState` and `AgentConnection`, bundled as `LiveSession` only at the manager seam (sibling of the DB-row and wire-shape representations of a session), collapses the eight-state space down to the two legal ones — the invalid combinations stop being expressible at all.
+2. A `Document` type bundles metadata, content, and rendering config. Every consumer depends on the whole even when it only needs one slice; when rendering config changes schema, the search indexer breaks even though it never reads rendering config. The slices have different audiences and different change rates — they are not one concept.
+3. A `User` record carries profile data, per-request auth state, and eventually-consistent analytics counters. Three different lifetimes pretending to be one. Any code that updates `User` has to reason about all three; analytics writes contend with profile reads.
+
+**Remedy:** Read `notes/bundling-distinct-concepts-causes-impossible-types.md` and apply its guidance.
+
+### D11. Working Memory Overflow
 Read through a function or module. Count the things you must hold in your head simultaneously: variables in scope, branches in flight, implicit state, conventions to remember.
 
 **Examples:**
@@ -142,7 +161,7 @@ Read through a function or module. Count the things you must hold in your head s
 
 **Remedy:** Read `notes/the-readers-experience.md` and apply its guidance.
 
-### D11. The Extract-Function Dead End
+### D12. The Extract-Function Dead End
 You have a large, unwieldy function or module. You try to improve it by extracting pieces into smaller functions. But afterward, nothing feels meaningfully better — you've segmented the code, not simplified it.
 
 **Examples:**
@@ -151,7 +170,7 @@ You have a large, unwieldy function or module. You try to improve it by extracti
 
 **Remedy:** Read `notes/type-centric-modularization.md` and apply its guidance.
 
-### D12. Scattered Knowledge
+### D13. Scattered Knowledge
 
 Often called code duplication; but more accurately - knowledge duplication. It includes knowledge about how specific operations, data transformations, policies and parsing/validation is done. It also includes conventions - naming rules, format assumptions, ordering etc. 
 
@@ -164,7 +183,7 @@ Are they *defined* somewhere - in one authoritative source, or duplicated/follow
 
 **Remedy:** Read `notes/making-knowledge-explicit.md` and apply its guidance.
 
-### D13. Re-Litigated Invariants
+### D14. Re-Litigated Invariants
 Pick a property the code relies on as data flows through it — that an array is sorted, that a record has been enriched, that two fields are in a valid combination. Is that property *established once and carried in the type*, or *re-derived by every consumer*?
 
 **Examples:**
